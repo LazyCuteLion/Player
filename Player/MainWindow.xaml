@@ -1,0 +1,33 @@
+﻿<Window
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:trans="clr-namespace:Transitionals;assembly=Transitionals"
+        xmlns:transc="clr-namespace:Transitionals.Controls;assembly=Transitionals"
+        xmlns:refl="clr-namespace:System.Reflection;assembly=mscorlib"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:Player" x:Class="Player.MainWindow"
+        ResizeMode="NoResize" mc:Ignorable="d"
+        WindowStyle="None" Left="0" Top="0"
+        Title="Player" Height="450" Width="800" Cursor="None">
+    <Grid x:Name="root" Background="Black">
+        <transc:Slideshow  x:Name="imageViewer" Panel.ZIndex="1" >
+            <transc:Slideshow.ItemTemplate>
+                <DataTemplate>
+                    <Image Stretch="Fill">
+                        <Image.Source>
+                            <BitmapImage UriSource="{Binding}" DecodePixelWidth="{Binding ActualWidth, Mode=OneWay, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:MainWindow}}}"/>
+                        </Image.Source>
+                    </Image>
+                </DataTemplate>
+            </transc:Slideshow.ItemTemplate>
+            <transc:Slideshow.TransitionSelector>
+                <trans:RandomTransitionSelector>
+                    <trans:RandomTransitionSelector.TransitionAssemblies>
+                        <refl:AssemblyName Name="Transitionals" />
+                    </trans:RandomTransitionSelector.TransitionAssemblies>
+                </trans:RandomTransitionSelector>
+            </transc:Slideshow.TransitionSelector>
+        </transc:Slideshow>
+    </Grid>
+</Window>
