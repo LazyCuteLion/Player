@@ -181,7 +181,15 @@ namespace System.Volume
 
         private VolumeHelper() { }
 
-        public static readonly VolumeHelper Current = new VolumeHelper();
+        private static readonly Lazy<VolumeHelper> _current = new Lazy<VolumeHelper>(() => { return new VolumeHelper(); });
+
+        public static VolumeHelper Current
+        {
+            get
+            {
+                return _current.Value;
+            }
+        }
 
         private class WinXpVolumeOperate
         {
