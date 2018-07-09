@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
 
-namespace System.Volume
+namespace System.Device
 {
     /// <summary>
     /// 获取或设置系统 主音量 (支持 Xp 和 Win7+)
@@ -40,7 +40,7 @@ namespace System.Volume
         {
             try
             {
-                if (action != null) action();
+                action?.Invoke();
             }
             catch (Exception exp)
             {

@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Text;
@@ -17,6 +18,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 using FFmpeg.AutoGen;
 using Meta.Vlc.Wpf;
 using static System.Configuration.ConfigurationManager;
@@ -39,6 +41,8 @@ namespace Player
             this.LoadPlayer();
 
             this.StartUdpServer();
+
+            this.ListeningVolumeChange();
         }
 
         private void Layout()
@@ -108,6 +112,7 @@ namespace Player
                         Stretch = Stretch.Fill,
                     };
                     player1.StateChanged += OnStateChanged;
+                    player1.LengthChanged += OnLengthChanged;
                     player1.Initialized += (s, e) => { player1.LoadMedia(new Uri(videos[0], UriKind.Absolute)); };
                     root.Children.Add(player1);
                     break;
@@ -123,6 +128,7 @@ namespace Player
                     root.Children.Add(player2);
                     player2.MediaEnded += OnMediaEnded;
                     player2.MediaOpening += OnMediaOpening;
+                    player2.MediaOpened += OnMediaOpened;
                     break;
                 default:
                     var player3 = new MediaElement
@@ -133,6 +139,7 @@ namespace Player
                         Source = new Uri(videos[0], UriKind.Absolute)
                     };
                     player3.MediaEnded += OnMediaEnded;
+                    player3.MediaOpened += OnMediaOpened;
                     root.Children.Add(player3);
                     break;
             }
@@ -141,6 +148,30 @@ namespace Player
             {
                 this.Play(videos[0]);
             }
+        }
+
+        private void OnMediaOpened(object sender, RoutedEventArgs e)
+        {
+            var send = "duration:";
+            if (sender is MediaElement player1)
+            {
+                send += player1.NaturalDuration.TimeSpan.TotalSeconds;
+            }
+            else if (sender is Unosquare.FFME.MediaElement player2)
+            {
+                send += player2.NaturalDuration.TimeSpan.TotalSeconds;
+            }
+            else
+            {
+                send += "0";
+            }
+            udpClient?.Send(send, IPAddress.Broadcast.ToString(), 10241);
+        }
+
+        private void OnLengthChanged(object sender, EventArgs e)
+        {
+            var player = sender as VlcPlayer;
+            udpClient?.Send($"duration:{player.Length.TotalSeconds}", IPAddress.Broadcast.ToString(), 10241);
         }
 
         private void OnMediaOpening(object sender, Unosquare.FFME.Events.MediaOpeningRoutedEventArgs e)
@@ -169,21 +200,24 @@ namespace Player
 
         private void OnStateChanged(object sender, Meta.Vlc.ObjectEventArgs<Meta.Vlc.Interop.Media.MediaState> e)
         {
-            if (e.Value == Meta.Vlc.Interop.Media.MediaState.Ended)
+            switch (e.Value)
             {
-                if (AppSettings["Loop"] == "true")
-                    NextVideo();
-                else
-                {
-                    if (imageViewer.Items.Count > 1)
+                case Meta.Vlc.Interop.Media.MediaState.Ended:
+                    if (AppSettings["Loop"] == "true")
+                        NextVideo();
+                    else
                     {
-                        imageViewer.SelectedIndex = 0;
-                        imageViewer.AutoAdvance = true;
+                        if (imageViewer.Items.Count > 1)
+                        {
+                            imageViewer.SelectedIndex = 0;
+                            imageViewer.AutoAdvance = true;
+                        }
+                        imageViewer.Visibility = Visibility.Visible;
+                        (sender as VlcPlayer).Stop();
                     }
-                    imageViewer.Visibility = Visibility.Visible;
-                    (sender as VlcPlayer).Stop();
-                }
+                    break;
             }
+
         }
 
         private void Play(string name = "")
@@ -339,6 +373,8 @@ namespace Player
             this.Play(videos[index]);
         }
 
+        UdpClient udpClient;
+
         private void StartUdpServer()
         {
             var port = 1699;
@@ -347,15 +383,15 @@ namespace Player
                 port = int.Parse(AppSettings["Port"]);
             }
             catch { }
-            var udp = new UdpClient(port);
+            udpClient = new UdpClient(port);
             Task.Run(async () =>
             {
                 while (true)
                 {
                     try
                     {
-                        var r = await udp.ReceiveAsync();
-                        var cmd = System.Text.Encoding.UTF8.GetString(r.Buffer);
+                        var r = await udpClient.ReceiveAsync();
+                        var cmd = Encoding.UTF8.GetString(r.Buffer);
                         var value = "";
                         if (cmd.Contains("?"))
                         {
@@ -384,50 +420,73 @@ namespace Player
                                 this.Dispatcher.Invoke(this.NextVideo);
                                 break;
                             case "volume":
-                                if (value == "-1")
+                                if (string.IsNullOrEmpty(value))
                                 {
-                                    System.Volume.VolumeHelper.Current.IsMute = false;
+                                    var volume = System.Device.VolumeHelper.Current.MasterVolume;
+                                    udpClient?.Send("volume:" + volume, IPAddress.Broadcast.ToString(), 10241);
                                 }
-                                else if (!string.IsNullOrEmpty(value) 
-                                && int.TryParse(value, out int volume) 
-                                && volume >= 0 && volume <= 100)
+                                else if (int.TryParse(value, out int volume))
                                 {
-                                    System.Volume.VolumeHelper.Current.IsMute = true;
-                                    System.Volume.VolumeHelper.Current.MasterVolume = volume;
-                                }
-                                else
-                                {
-                                    var v = System.Volume.VolumeHelper.Current.MasterVolume;
-                                    udp.Send("volume:" + v, r.RemoteEndPoint);
+                                    if (volume < 0)
+                                    {
+                                        //静音或取消静音
+                                        System.Device.VolumeHelper.Current.IsMute = !System.Device.VolumeHelper.Current.IsMute;
+                                        if (System.Device.VolumeHelper.Current.IsMute)
+                                            udpClient?.Send("volume:0", IPAddress.Broadcast.ToString(), 10241);
+                                        else
+                                            udpClient?.Send("volume:" + System.Device.VolumeHelper.Current.MasterVolume, IPAddress.Broadcast.ToString(), 10241);
+                                    }
+                                    else
+                                    {
+                                        System.Device.VolumeHelper.Current.IsMute = true;
+                                        System.Device.VolumeHelper.Current.MasterVolume = volume;
+                                    }
                                 }
                                 break;
                             case "volume-":
-                                System.Volume.VolumeHelper.Current.MasterVolume -= 2;
+                                System.Device.VolumeHelper.Current.MasterVolume -= 2;
                                 break;
                             case "volume+":
-                                System.Volume.VolumeHelper.Current.MasterVolume += 2;
+                                System.Device.VolumeHelper.Current.MasterVolume += 2;
                                 break;
                             case "position":
                                 if (string.IsNullOrEmpty(value))
                                 {
                                     //获取视频播放进度
                                     var p = this.Dispatcher.Invoke(() => { return this.Position(); });
-                                    udp.Send("position:" + p, r.RemoteEndPoint);
+                                    udpClient.Send("position:" + p, r.RemoteEndPoint);
+                                    udpClient.Send("position:" + p, IPAddress.Broadcast.ToString(), 10241);
                                 }
-                                else
+                                else if (double.TryParse(value, out double time) && time >= 0)
                                 {
-                                    if (double.TryParse(value, out double time) && time >= 0)
+                                    this.Dispatcher.Invoke(() =>
                                     {
-                                        this.Dispatcher.Invoke(() =>
-                                        {
-                                            this.Position(TimeSpan.FromSeconds(time));
-                                        });
-                                    }
+                                        this.Position(TimeSpan.FromSeconds(time));
+                                    });
                                 }
+                                break;
+                            case "position-":
+                                this.Dispatcher.Invoke(() =>
+                                {
+                                    var p = this.Position() - 3;
+                                    if (p < 0)
+                                        p = 0;
+                                    this.Position(TimeSpan.FromSeconds(p));
+                                });
+                                break;
+                            case "position+":
+                                this.Dispatcher.Invoke(() =>
+                                {
+                                    var p = this.Position() + 3;
+                                    if (p > this.Duration())
+                                        p = this.Duration();
+                                    this.Position(TimeSpan.FromSeconds(p));
+                                });
                                 break;
                             case "duration":
                                 var duration = this.Dispatcher.Invoke(this.Duration);
-                                udp.Send("duration:" + duration, r.RemoteEndPoint);
+                                udpClient.Send("duration:" + duration, r.RemoteEndPoint);
+                                udpClient.Send("duration:" + duration, IPAddress.Broadcast.ToString(), 10241);
                                 break;
                             case "restart":
                                 Process.Start("shutdown", "-r -t 3");
@@ -440,6 +499,16 @@ namespace Player
                     catch { break; }
                 }
             });
+        }
+
+        private void ListeningVolumeChange()
+        {
+            System.Device.VolumeHelper.Current.Listening(1000);
+            System.Device.VolumeHelper.Current.PropertyChanged += (s, e) =>
+            {
+                var volume = System.Device.VolumeHelper.Current.MasterVolume;
+                udpClient?.Send("volume:" + volume, IPAddress.Broadcast.ToString(), 10241);
+            };
         }
 
         protected override void OnKeyDown(KeyEventArgs e)
@@ -462,10 +531,10 @@ namespace Player
                     this.Stop();
                     break;
                 case Key.Up:
-                    System.Volume.VolumeHelper.Current.MasterVolume += 2;
+                    System.Device.VolumeHelper.Current.MasterVolume += 2;
                     break;
                 case Key.Down:
-                    System.Volume.VolumeHelper.Current.MasterVolume -= 2;
+                    System.Device.VolumeHelper.Current.MasterVolume -= 2;
                     break;
             }
             base.OnKeyDown(e);
@@ -487,7 +556,6 @@ namespace Player
 
             base.OnClosing(e);
         }
-
 
     }
 }
