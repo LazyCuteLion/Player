@@ -214,6 +214,8 @@ namespace Player
                         }
                         imageViewer.Visibility = Visibility.Visible;
                         (sender as VlcPlayer).Stop();
+
+                        this.Send(AppSettings["OnStoped"]);
                     }
                     break;
             }
@@ -265,6 +267,8 @@ namespace Player
 
                 player1.Play();
             }
+
+            this.Send(AppSettings["StartPlay"]);
         }
 
         private void Pause()
@@ -307,6 +311,9 @@ namespace Player
             {
                 player1.Stop();
             }
+
+            this.Send(AppSettings["OnStoped"]);
+
         }
 
         private double Position(TimeSpan? time = null)
@@ -406,6 +413,7 @@ namespace Player
                                 {
                                     this.Play(value);
                                 });
+                                
                                 break;
                             case "pause":
                                 this.Dispatcher.Invoke(this.Pause);
@@ -557,5 +565,42 @@ namespace Player
             base.OnClosing(e);
         }
 
+
+        private void Send(string data)
+        {
+            if (string.IsNullOrWhiteSpace(AppSettings["Com"]) || string.IsNullOrWhiteSpace(data))
+                return;
+
+            var temp = data.Split(',');
+            Task.Run(() =>
+            {
+                try
+                {
+                    var com = new System.IO.Ports.SerialPort(AppSettings["Com"]);
+                    com.Open();
+                    foreach (var item in temp)
+                    {
+                        if (item.StartsWith("0x"))
+                        {
+                            var s = item.Substring(2);
+                            var d = new byte[s.Length / 2];
+                            for (int i = 0; i < d.Length; i++)
+                            {
+                                d[i] = Convert.ToByte(s.Substring(i * 2, 2), 16);
+                            }
+                            com.Write(d, 0, d.Length);
+                        }
+                        else
+                        {
+                            com.Write(item);
+                        }
+                        System.Threading.Thread.Sleep(100);
+                    }
+                    com.Close();
+                }
+                catch { }
+            });
+
+        }
     }
 }
