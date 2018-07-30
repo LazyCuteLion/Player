@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Device;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -42,7 +43,7 @@ namespace Player
 
             this.StartUdpServer();
 
-            this.ListeningVolumeChange();
+            //this.ListeningVolumeChange();
         }
 
         private void Layout()
@@ -103,6 +104,14 @@ namespace Player
                                           .Where(f => exts.Contains(System.IO.Path.GetExtension(f)))
                                           .ToArray();
 
+            if (videos.Length < 1)
+            {
+                MessageBox.Show("未包含任何影片，请添加后重启！");
+                Process.Start(dir);
+                this.Close();
+                return;
+            }
+
             switch (AppSettings["Codec"].ToLower())
             {
                 case "vlc":
@@ -113,7 +122,10 @@ namespace Player
                     };
                     player1.StateChanged += OnStateChanged;
                     player1.LengthChanged += OnLengthChanged;
-                    player1.Initialized += (s, e) => { player1.LoadMedia(new Uri(videos[0], UriKind.Absolute)); };
+                    player1.Initialized += (s, e) =>
+                    {
+                        player1.LoadMedia(new Uri(videos[0], UriKind.Absolute));
+                    };
                     root.Children.Add(player1);
                     break;
                 case "ffmpeg":
@@ -322,20 +334,38 @@ namespace Player
             {
                 if (root.Children[1] is MediaElement player3)
                 {
-                    if (time.HasValue && time < player3.NaturalDuration.TimeSpan)
+                    if (time.HasValue)
+                    {
+                        if (time < TimeSpan.Zero)
+                            time = TimeSpan.Zero;
+                        else if (time > player3.NaturalDuration.TimeSpan)
+                            time = player3.NaturalDuration.TimeSpan;
                         player3.Position = time.Value;
+                    }
                     return player3.Position.TotalSeconds;
                 }
                 else if (root.Children[1] is Unosquare.FFME.MediaElement player2)
                 {
-                    if (time.HasValue && time < player2.NaturalDuration.TimeSpan)
+                    if (time.HasValue)
+                    {
+                        if (time < TimeSpan.Zero)
+                            time = TimeSpan.Zero;
+                        else if (time > player2.NaturalDuration.TimeSpan)
+                            time = player2.NaturalDuration.TimeSpan;
                         player2.Position = time.Value;
+                    }
                     return player2.Position.TotalSeconds;
                 }
                 else if (root.Children[1] is VlcPlayer player1)
                 {
-                    if (time.HasValue && time < player1.Length)
+                    if (time.HasValue)
+                    {
+                        if (time < TimeSpan.Zero)
+                            time = TimeSpan.Zero;
+                        else if (time > player1.Length)
+                            time = player1.Length;
                         player1.Time = time.Value;
+                    }
                     return player1.Time.TotalSeconds;
                 }
             }
@@ -400,6 +430,7 @@ namespace Player
                         var r = await udpClient.ReceiveAsync();
                         var cmd = Encoding.UTF8.GetString(r.Buffer);
                         var value = "";
+                        var send = "";
                         if (cmd.Contains("?"))
                         {
                             var temp = cmd.Split('?');
@@ -413,7 +444,6 @@ namespace Player
                                 {
                                     this.Play(value);
                                 });
-                                
                                 break;
                             case "pause":
                                 this.Dispatcher.Invoke(this.Pause);
@@ -428,73 +458,60 @@ namespace Player
                                 this.Dispatcher.Invoke(this.NextVideo);
                                 break;
                             case "volume":
-                                if (string.IsNullOrEmpty(value))
-                                {
-                                    var volume = System.Device.VolumeHelper.Current.MasterVolume;
-                                    udpClient?.Send("volume:" + volume, IPAddress.Broadcast.ToString(), 10241);
-                                }
-                                else if (int.TryParse(value, out int volume))
+                                send = "";
+                                if (int.TryParse(value, out int volume))
                                 {
                                     if (volume < 0)
                                     {
                                         //静音或取消静音
-                                        System.Device.VolumeHelper.Current.IsMute = !System.Device.VolumeHelper.Current.IsMute;
-                                        if (System.Device.VolumeHelper.Current.IsMute)
-                                            udpClient?.Send("volume:0", IPAddress.Broadcast.ToString(), 10241);
-                                        else
-                                            udpClient?.Send("volume:" + System.Device.VolumeHelper.Current.MasterVolume, IPAddress.Broadcast.ToString(), 10241);
+                                        VolumeHelper.Current.IsMute = !VolumeHelper.Current.IsMute;
+                                        if (VolumeHelper.Current.IsMute)
+                                            send = "volume:0";
                                     }
-                                    else
+                                    else if (volume <= 100)
                                     {
-                                        System.Device.VolumeHelper.Current.IsMute = true;
-                                        System.Device.VolumeHelper.Current.MasterVolume = volume;
+                                        VolumeHelper.Current.IsMute = false;
+                                        VolumeHelper.Current.MasterVolume = volume;
                                     }
                                 }
+                                if (string.IsNullOrEmpty(send))
+                                    send = "volume:" + VolumeHelper.Current.MasterVolume;
                                 break;
                             case "volume-":
-                                System.Device.VolumeHelper.Current.MasterVolume -= 2;
+                                VolumeHelper.Current.MasterVolume -= 2;
+                                send = "volume:" + VolumeHelper.Current.MasterVolume;
                                 break;
                             case "volume+":
-                                System.Device.VolumeHelper.Current.MasterVolume += 2;
+                                VolumeHelper.Current.MasterVolume += 2;
+                                send = "volume:" + VolumeHelper.Current.MasterVolume;
                                 break;
                             case "position":
                                 if (string.IsNullOrEmpty(value))
                                 {
                                     //获取视频播放进度
-                                    var p = this.Dispatcher.Invoke(() => { return this.Position(); });
-                                    udpClient.Send("position:" + p, r.RemoteEndPoint);
-                                    udpClient.Send("position:" + p, IPAddress.Broadcast.ToString(), 10241);
+                                    send = "position:" + this.Dispatcher.Invoke(() => { return this.Position(); });
                                 }
                                 else if (double.TryParse(value, out double time) && time >= 0)
                                 {
-                                    this.Dispatcher.Invoke(() =>
-                                    {
-                                        this.Position(TimeSpan.FromSeconds(time));
-                                    });
+                                    send = "position:" + this.Dispatcher.Invoke(() => { return this.Position(TimeSpan.FromSeconds(time)); });
                                 }
                                 break;
                             case "position-":
-                                this.Dispatcher.Invoke(() =>
-                                {
-                                    var p = this.Position() - 3;
-                                    if (p < 0)
-                                        p = 0;
-                                    this.Position(TimeSpan.FromSeconds(p));
-                                });
+                                send = "position:" + this.Dispatcher.Invoke(() =>
+                                                                                        {
+                                                                                            var p = this.Position() - 3;
+                                                                                            return this.Position(TimeSpan.FromSeconds(p));
+                                                                                        });
                                 break;
                             case "position+":
-                                this.Dispatcher.Invoke(() =>
-                                {
-                                    var p = this.Position() + 3;
-                                    if (p > this.Duration())
-                                        p = this.Duration();
-                                    this.Position(TimeSpan.FromSeconds(p));
-                                });
+                                send = "position:" + this.Dispatcher.Invoke(() =>
+                                                                                        {
+                                                                                            var p = this.Position() + 3;
+                                                                                            return this.Position(TimeSpan.FromSeconds(p));
+                                                                                        });
                                 break;
                             case "duration":
-                                var duration = this.Dispatcher.Invoke(this.Duration);
-                                udpClient.Send("duration:" + duration, r.RemoteEndPoint);
-                                udpClient.Send("duration:" + duration, IPAddress.Broadcast.ToString(), 10241);
+                                send = "duration:" + this.Dispatcher.Invoke(this.Duration);
                                 break;
                             case "restart":
                                 Process.Start("shutdown", "-r -t 3");
@@ -503,6 +520,9 @@ namespace Player
                                 Process.Start("shutdown", "-s -t 3");
                                 break;
                         }
+
+                        if (!string.IsNullOrEmpty(send))
+                            udpClient.Send(send, r.RemoteEndPoint);
                     }
                     catch { break; }
                 }
@@ -511,10 +531,10 @@ namespace Player
 
         private void ListeningVolumeChange()
         {
-            System.Device.VolumeHelper.Current.Listening(1000);
-            System.Device.VolumeHelper.Current.PropertyChanged += (s, e) =>
+            VolumeHelper.Current.Listening(1000);
+            VolumeHelper.Current.PropertyChanged += (s, e) =>
             {
-                var volume = System.Device.VolumeHelper.Current.MasterVolume;
+                var volume = VolumeHelper.Current.MasterVolume;
                 udpClient?.Send("volume:" + volume, IPAddress.Broadcast.ToString(), 10241);
             };
         }
