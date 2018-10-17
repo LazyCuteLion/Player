@@ -43,7 +43,6 @@ namespace Player
 
             this.StartUdpServer();
 
-            //this.ListeningVolumeChange();
         }
 
         private void Layout()
@@ -69,7 +68,7 @@ namespace Player
 
 #if DEBUG
             this.Topmost = false;
-            //this.Cursor = Cursors.Arrow;
+            this.Cursor = Cursors.Arrow;
 #endif
         }
 
@@ -77,21 +76,28 @@ namespace Player
         {
             var images = Directory.GetFiles(AppDomain.CurrentDomain.BaseDirectory + "Screen", "*.jpg").ToList();
             images.AddRange(Directory.GetFiles(AppDomain.CurrentDomain.BaseDirectory + "Screen", "*.png"));
-            imageViewer.ItemsSource = images.OrderBy(f => f.Length)
-                                                                     .ThenBy(f => System.IO.Path.GetFileName(f));
 
             if (images.Count > 1)
             {
+                imageViewer.ItemsSource = images.OrderBy(f => f.Length)
+                                                                    .ThenBy(f => System.IO.Path.GetFileName(f));
                 imageViewer.AutoAdvance = true;
                 imageViewer.AutoAdvanceDuration = TimeSpan.Parse(AppSettings["ImageDuration"]);
+                await Task.Delay(1000);
+                imageViewer.SelectedIndex = 0;
+            }
+            else if (images.Count == 1)
+            {
+                imageViewer.Background = new ImageBrush(new BitmapImage(new Uri(images[0], UriKind.Absolute)));
             }
 
-            await Task.Delay(200);
-            imageViewer.SelectedIndex = 0;
         }
 
         private string[] videos;
         private int index = 0;
+        private bool isPlaying = false;
+        UdpClient udpClient;
+
 
         private void LoadPlayer()
         {
@@ -158,7 +164,21 @@ namespace Player
 
             if (AppSettings["AutoPlay"].ToLower() == "true")
             {
-                this.Play(videos[0]);
+                this.Play(1);
+            }
+        }
+
+        private void OnMediaOpening(object sender, Unosquare.FFME.Events.MediaOpeningRoutedEventArgs e)
+        {
+            var device = e.Options.VideoStream.HardwareDevices.FirstOrDefault(d => d.DeviceType == AVHWDeviceType.AV_HWDEVICE_TYPE_DXVA2);
+            if (device != null)
+                e.Options.VideoHardwareDevice = device;
+            else
+                e.Options.VideoHardwareDevice = e.Options.VideoStream.HardwareDevices.FirstOrDefault(d => d.DeviceType == AVHWDeviceType.AV_HWDEVICE_TYPE_CUDA);
+
+            if (e.Options.VideoStream.PixelWidth > this.ActualWidth)
+            {
+                e.Options.VideoFilter = $"scale={(int)this.ActualWidth}:-1";
             }
         }
 
@@ -172,12 +192,10 @@ namespace Player
             else if (sender is Unosquare.FFME.MediaElement player2)
             {
                 send += player2.NaturalDuration.TimeSpan.TotalSeconds;
-            }
-            else
-            {
-                send += "0";
+                //Debug.WriteLine("video size:{0},{1}", player2.NaturalVideoWidth, player2.NaturalVideoHeight);
             }
             udpClient?.Send(send, IPAddress.Broadcast.ToString(), 10241);
+
         }
 
         private void OnLengthChanged(object sender, EventArgs e)
@@ -186,22 +204,12 @@ namespace Player
             udpClient?.Send($"duration:{player.Length.TotalSeconds}", IPAddress.Broadcast.ToString(), 10241);
         }
 
-        private void OnMediaOpening(object sender, Unosquare.FFME.Events.MediaOpeningRoutedEventArgs e)
+        private async void OnMediaEnded(object sender, RoutedEventArgs e)
         {
-            var device = e.Options.VideoStream.HardwareDevices.FirstOrDefault(d => d.DeviceType == AVHWDeviceType.AV_HWDEVICE_TYPE_DXVA2);
-            if (device != null)
-                e.Options.VideoHardwareDevice = device;
-
-            if (e.Options.VideoStream.PixelWidth > this.ActualWidth)
-            {
-                e.Options.VideoFilter = $"scale={(int)this.ActualWidth}x-1";
-            }
-        }
-
-        private void OnMediaEnded(object sender, RoutedEventArgs e)
-        {
+            CommandManager.Stop(videos[index]);
             if (AppSettings["Loop"] == "true")
             {
+                await Task.Delay(200);
                 NextVideo();
             }
             else
@@ -210,81 +218,108 @@ namespace Player
             }
         }
 
-        private void OnStateChanged(object sender, Meta.Vlc.ObjectEventArgs<Meta.Vlc.Interop.Media.MediaState> e)
+        private async void OnStateChanged(object sender, Meta.Vlc.ObjectEventArgs<Meta.Vlc.Interop.Media.MediaState> e)
         {
             switch (e.Value)
             {
                 case Meta.Vlc.Interop.Media.MediaState.Ended:
+                    CommandManager.Stop(videos[index]);
                     if (AppSettings["Loop"] == "true")
+                    {
+                        await Task.Delay(200);
                         NextVideo();
+                    }
                     else
                     {
-                        if (imageViewer.Items.Count > 1)
-                        {
-                            imageViewer.SelectedIndex = 0;
-                            imageViewer.AutoAdvance = true;
-                        }
-                        imageViewer.Visibility = Visibility.Visible;
-                        (sender as VlcPlayer).Stop();
-
-                        this.Send(AppSettings["OnStoped"]);
+                        this.Stop();
                     }
                     break;
             }
 
         }
 
-        private void Play(string name = "")
+        private async void Play(object name = null)
         {
+            if (isPlaying)
+                return;
+
             imageViewer.AutoAdvance = false;
             imageViewer.Visibility = Visibility.Hidden;
 
-            if (!string.IsNullOrEmpty(name))
+            var p = "";
+
+            if (name is int n && n > 0 && n <= videos.Length)
             {
-                if (int.TryParse(name, out int num))
+                index = n - 1;
+                p = videos[index];
+            }
+            else if (name is string && !string.IsNullOrWhiteSpace(name.ToString()))
+            {
+                for (int i = 0; i < videos.Length; i++)
                 {
-                    if (num > -1 && num < videos.Length)
-                        name = videos[num];
-                    else
-                        name = "";
-                }
-                else
-                {
-                    name = videos.FirstOrDefault(f => f.EndsWith(name));
+                    if (videos[i].EndsWith(name.ToString(), StringComparison.OrdinalIgnoreCase))
+                    {
+                        index = i;
+                        name = videos[index];
+                        break;
+                    }
                 }
             }
+
+            TimeSpan time = TimeSpan.Zero;
+            TimeSpan duration = TimeSpan.Zero;
 
             if (root.Children[1] is MediaElement player3)
             {
-                if (!string.IsNullOrEmpty(name))
-                    player3.Source = new Uri(name, UriKind.Absolute);
+                if (!string.IsNullOrEmpty(p))
+                    player3.Source = new Uri(p, UriKind.Absolute);
                 player3.Play();
+                time = player3.Position;
             }
             else if (root.Children[1] is Unosquare.FFME.MediaElement player2)
             {
-                if (!string.IsNullOrEmpty(name))
-                    player2.Open(new Uri(name, UriKind.Absolute));
+                if (!string.IsNullOrEmpty(p))
+                    await player2.Open(new Uri(p, UriKind.Absolute));
                 else if (player2.Source == null)
-                    player2.Open(new Uri(videos[0], UriKind.Absolute));
+                    await player2.Open(new Uri(videos[0], UriKind.Absolute));
                 else
-                    player2.Play();
+                    await player2.Play();
+                time = player2.Position;
             }
             else if (root.Children[1] is VlcPlayer player1)
             {
-                if (!string.IsNullOrEmpty(name))
+                if (!string.IsNullOrEmpty(p))
                 {
                     player1.Stop();
-                    player1.LoadMedia(new Uri(name, UriKind.Absolute));
+                    player1.LoadMedia(new Uri(p, UriKind.Absolute));
                 }
-
                 player1.Play();
+                time = player1.Time;
             }
 
-            this.Send(AppSettings["StartPlay"]);
+            if (string.IsNullOrEmpty(p))
+            {
+                p = videos[index];
+            }
+
+            CommandManager.Start(p, time);
+
+            var cmd = AppSettings["OnPlaying"];
+            if (!string.IsNullOrEmpty(cmd))
+            {
+                foreach (var item in cmd.Split(','))
+                {
+                    CommandManager.Send(item);
+                    await Task.Delay(100).ConfigureAwait(false);
+                }
+            }
+
+            isPlaying = true;
         }
 
         private void Pause()
         {
+            isPlaying = false;
             if (root.Children[1] is MediaElement player3)
             {
                 player3.Pause();
@@ -297,10 +332,14 @@ namespace Player
             {
                 player1.Pause();
             }
+
+            CommandManager.Stop();
         }
 
         private void Stop()
         {
+            isPlaying = false;
+
             if (!imageViewer.IsVisible)
             {
                 if (imageViewer.Items.Count > 1)
@@ -324,7 +363,20 @@ namespace Player
                 player1.Stop();
             }
 
-            this.Send(AppSettings["OnStoped"]);
+            CommandManager.Stop(videos[index]);
+
+            Task.Delay(100).ContinueWith(t =>
+            {
+                var cmd = AppSettings["OnStop"];
+                if (!string.IsNullOrEmpty(cmd))
+                {
+                    foreach (var item in cmd.Split(','))
+                    {
+                        CommandManager.Send(item);
+                        Task.Delay(100).Wait();
+                    }
+                }
+            });
 
         }
 
@@ -396,21 +448,21 @@ namespace Player
 
         private void PreviousVideo()
         {
+            isPlaying = false;
             index--;
             if (index < 0)
                 index = videos.Length - 1;
-            this.Play(videos[index]);
+            this.Play(index + 1);
         }
 
         private void NextVideo()
         {
+            isPlaying = false;
             index++;
             if (index >= videos.Length)
                 index = 0;
-            this.Play(videos[index]);
+            this.Play(index + 1);
         }
-
-        UdpClient udpClient;
 
         private void StartUdpServer()
         {
@@ -442,7 +494,18 @@ namespace Player
                             case "play":
                                 this.Dispatcher.Invoke(() =>
                                 {
-                                    this.Play(value);
+                                    if (string.IsNullOrEmpty(value))
+                                    {
+                                        this.Play();
+                                    }
+                                    else if (int.TryParse(value, out int n))
+                                    {
+                                        this.Play(n);
+                                    }
+                                    else
+                                    {
+                                        this.Play(value);
+                                    }
                                 });
                                 break;
                             case "pause":
@@ -461,7 +524,7 @@ namespace Player
                                 send = "";
                                 if (int.TryParse(value, out int volume))
                                 {
-                                    if (volume < 0)
+                                    if (volume <= 0)
                                     {
                                         //静音或取消静音
                                         VolumeHelper.Current.IsMute = !VolumeHelper.Current.IsMute;
@@ -529,16 +592,6 @@ namespace Player
             });
         }
 
-        private void ListeningVolumeChange()
-        {
-            VolumeHelper.Current.Listening(1000);
-            VolumeHelper.Current.PropertyChanged += (s, e) =>
-            {
-                var volume = VolumeHelper.Current.MasterVolume;
-                udpClient?.Send("volume:" + volume, IPAddress.Broadcast.ToString(), 10241);
-            };
-        }
-
         protected override void OnKeyDown(KeyEventArgs e)
         {
             switch (e.Key)
@@ -559,10 +612,10 @@ namespace Player
                     this.Stop();
                     break;
                 case Key.Up:
-                    System.Device.VolumeHelper.Current.MasterVolume += 2;
+                    VolumeHelper.Current.MasterVolume += 2;
                     break;
                 case Key.Down:
-                    System.Device.VolumeHelper.Current.MasterVolume -= 2;
+                    VolumeHelper.Current.MasterVolume -= 2;
                     break;
             }
             base.OnKeyDown(e);
@@ -585,42 +638,5 @@ namespace Player
             base.OnClosing(e);
         }
 
-
-        private void Send(string data)
-        {
-            if (string.IsNullOrWhiteSpace(AppSettings["Com"]) || string.IsNullOrWhiteSpace(data))
-                return;
-
-            var temp = data.Split(',');
-            Task.Run(() =>
-            {
-                try
-                {
-                    var com = new System.IO.Ports.SerialPort(AppSettings["Com"]);
-                    com.Open();
-                    foreach (var item in temp)
-                    {
-                        if (item.StartsWith("0x"))
-                        {
-                            var s = item.Substring(2);
-                            var d = new byte[s.Length / 2];
-                            for (int i = 0; i < d.Length; i++)
-                            {
-                                d[i] = Convert.ToByte(s.Substring(i * 2, 2), 16);
-                            }
-                            com.Write(d, 0, d.Length);
-                        }
-                        else
-                        {
-                            com.Write(item);
-                        }
-                        System.Threading.Thread.Sleep(100);
-                    }
-                    com.Close();
-                }
-                catch { }
-            });
-
-        }
     }
 }
