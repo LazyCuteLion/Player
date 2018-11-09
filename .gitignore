@@ -1,0 +1,8 @@
+\packages
+\.vs
+\obj
+/player/bin/debug/ffmpeg
+/player/bin/debug/vlc
+/player/bin/debug/videos
+/player/bin/release
+
