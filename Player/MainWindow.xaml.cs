@@ -30,7 +30,8 @@ namespace Player
 
             this.Layout();
 
-            this.LoadImages();
+            if (!LoadStandbyPlayer())
+                this.LoadImages();
 
             this.LoadPlayer();
 
@@ -40,6 +41,13 @@ namespace Player
 
         private void Layout()
         {
+#if !DEBUG
+            this.Topmost = true;
+            this.Cursor = Cursors.None;
+#else
+            root.Background = Brushes.Green;
+#endif
+
             var size = new Size(SystemParameters.PrimaryScreenWidth, SystemParameters.PrimaryScreenHeight);
             try
             {
@@ -59,10 +67,31 @@ namespace Player
             this.Left = location.X;
             this.Top = location.Y;
 
-#if DEBUG
-            this.Topmost = false;
-            this.Cursor = Cursors.Arrow;
-#endif
+        }
+
+        private bool LoadStandbyPlayer()
+        {
+            if (File.Exists(standbyVideo))
+            {
+                root.Children.Remove(imageViewer);
+                imageViewer = null;
+                standbyPlayer = new MediaElement()
+                {
+                    Source = new Uri(standbyVideo, UriKind.Absolute),
+                    LoadedBehavior = MediaState.Manual,
+                    Stretch = Stretch.Fill,
+                    Volume = 0
+                };
+                standbyPlayer.MediaEnded += (s, e) =>
+                {
+                    standbyPlayer.Position = TimeSpan.Zero;
+                };
+                Panel.SetZIndex(standbyPlayer, 9999);
+                root.Children.Add(standbyPlayer);
+                standbyPlayer.Play();
+                return true;
+            }
+            return false;
         }
 
         private async void LoadImages()
@@ -83,9 +112,10 @@ namespace Player
             {
                 imageViewer.Background = new ImageBrush(new BitmapImage(new Uri(images[0], UriKind.Absolute)));
             }
-
         }
 
+        MediaElement standbyPlayer;
+        private string standbyVideo = string.IsNullOrEmpty(AppSettings["StandbyVideo"]) ? AppDomain.CurrentDomain.BaseDirectory + "screen.mp4" : AppSettings["StandbyVideo"];
         private string[] videos;
         private int index = 0;
         private bool isPlaying = false;
@@ -121,6 +151,11 @@ namespace Player
                     };
                     player1.StateChanged += OnStateChanged;
                     player1.LengthChanged += OnLengthChanged;
+                    player1.VideoFormatChanging += (s, e) =>
+                    {
+                        if (e.Width > this.ActualWidth)
+                            e.Width = (uint)this.ActualWidth;
+                    };
                     player1.Initialized += (s, e) =>
                     {
                         player1.LoadMedia(new Uri(videos[0], UriKind.Absolute));
@@ -136,10 +171,12 @@ namespace Player
                         LoadedBehavior = MediaState.Play,
                         //Source = new Uri(videos[0], UriKind.Absolute)
                     };
+                    player2.BeginInit();
                     root.Children.Add(player2);
                     player2.MediaEnded += OnMediaEnded;
                     player2.MediaOpening += OnMediaOpening;
                     player2.MediaOpened += OnMediaOpened;
+                    player2.EndInit();
                     break;
                 default:
                     var player3 = new MediaElement
@@ -236,8 +273,18 @@ namespace Player
             if (isPlaying)
                 return;
 
-            imageViewer.AutoAdvance = false;
-            imageViewer.Visibility = Visibility.Hidden;
+            if (imageViewer != null)
+            {
+                imageViewer.AutoAdvance = false;
+                imageViewer.Visibility = Visibility.Hidden;
+            }
+
+            if (standbyPlayer != null)
+            {
+                standbyPlayer.Stop();
+                standbyPlayer.Visibility = Visibility.Hidden;
+            }
+
 
             var p = "";
 
@@ -333,7 +380,14 @@ namespace Player
         {
             isPlaying = false;
 
-            if (!imageViewer.IsVisible)
+            if (standbyPlayer != null)
+            {
+                standbyPlayer.Position = TimeSpan.Zero;
+                standbyPlayer.Play();
+                standbyPlayer.Visibility = Visibility.Visible;
+            }
+
+            if (imageViewer != null && !imageViewer.IsVisible)
             {
                 if (imageViewer.Items.Count > 1)
                 {
@@ -493,10 +547,12 @@ namespace Player
                                     }
                                     else if (int.TryParse(value, out int n))
                                     {
+                                        isPlaying = false;
                                         this.Play(n);
                                     }
                                     else
                                     {
+                                        isPlaying = false;
                                         this.Play(value);
                                     }
                                 });

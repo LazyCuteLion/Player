@@ -9,7 +9,7 @@
         xmlns:local="clr-namespace:Player" x:Class="Player.MainWindow"
         ResizeMode="NoResize" mc:Ignorable="d"
         WindowStyle="None" Left="0" Top="0"
-        Title="Player" Height="450" Width="800" Cursor="None">
+        Title="Player" Height="450" Width="800" >
     <Grid x:Name="root" Background="Black">
         <transc:Slideshow  x:Name="imageViewer" Panel.ZIndex="1" >
             <transc:Slideshow.ItemTemplate>
