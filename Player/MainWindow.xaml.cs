@@ -13,8 +13,6 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using FFmpeg.AutoGen;
-using Meta.Vlc.Wpf;
 using static System.Configuration.ConfigurationManager;
 
 namespace Player
@@ -44,6 +42,7 @@ namespace Player
 #if !DEBUG
             this.Topmost = true;
             this.Cursor = Cursors.None;
+            tbTitle.Visibility = Visibility.Collapsed;
 #else
             root.Background = Brushes.Green;
 #endif
@@ -124,7 +123,7 @@ namespace Player
 
         private void LoadPlayer()
         {
-            var exts = new string[] { ".mp4", ".avi", ".wmv", ".mov", ".mkv", ".flv", ".rmvb" };
+            var exts = new string[] { ".mp4", ".avi", ".webm", ".wmv", ".mov", ".mkv", ".flv", ".rmvb" };
             var dir = AppDomain.CurrentDomain.BaseDirectory + "Videos";
 #if DEBUG
             dir = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
@@ -143,40 +142,52 @@ namespace Player
 
             switch (AppSettings["Codec"].ToLower())
             {
-                case "vlc":
-                    var player1 = new VlcPlayer
-                    {
-                        Volume = 1,
-                        Stretch = Stretch.Fill,
-                    };
-                    player1.StateChanged += OnStateChanged;
-                    player1.LengthChanged += OnLengthChanged;
-                    player1.VideoFormatChanging += (s, e) =>
-                    {
-                        if (e.Width > this.ActualWidth)
-                            e.Width = (uint)this.ActualWidth;
-                    };
-                    player1.Initialized += (s, e) =>
-                    {
-                        player1.LoadMedia(new Uri(videos[0], UriKind.Absolute));
-                    };
-                    root.Children.Add(player1);
-                    break;
                 case "ffmpeg":
-                    Unosquare.FFME.MediaElement.FFmpegDirectory = AppDomain.CurrentDomain.BaseDirectory + "ffmpeg";
+                    if (Environment.Is64BitProcess)
+                        Unosquare.FFME.Library.FFmpegDirectory = AppDomain.CurrentDomain.BaseDirectory + "FFmpeg.4.1.1\\x64";
+                    else
+                        Unosquare.FFME.Library.FFmpegDirectory = AppDomain.CurrentDomain.BaseDirectory + "FFmpeg.4.1.1\\x86";
                     var player2 = new Unosquare.FFME.MediaElement
                     {
                         Volume = 1,
                         Stretch = Stretch.Fill,
-                        LoadedBehavior = MediaState.Play,
-                        //Source = new Uri(videos[0], UriKind.Absolute)
+                        LoadedBehavior = Unosquare.FFME.Common.MediaPlaybackState.Manual,
+                        Source = new Uri(videos[0], UriKind.Absolute)
                     };
                     player2.BeginInit();
-                    root.Children.Add(player2);
+                    root.Children.Insert(1, player2);
                     player2.MediaEnded += OnMediaEnded;
                     player2.MediaOpening += OnMediaOpening;
                     player2.MediaOpened += OnMediaOpened;
                     player2.EndInit();
+                    break;
+                case "vlc":
+                    if (Environment.Is64BitProcess)
+                        Meta.Vlc.Wpf.ApiManager.Initialize(@"LibVlc\x64", new string[] { "-I", "dummy", "--ignore-config", "--no-video-title", "--rtsp-tcp" });
+                    else
+                        Meta.Vlc.Wpf.ApiManager.Initialize(@"LibVlc\x86", new string[] { "-I", "dummy", "--ignore-config", "--no-video-title", "--rtsp-tcp" });
+                    var player1 = new Meta.Vlc.Wpf.VlcPlayer
+                    {
+                        Volume = 1,
+                        Stretch = Stretch.Fill,
+                    };
+                    player1.Initialized += (s, e) =>
+                    {
+                        player1.LoadMedia(videos[0]);
+                    };
+                    root.Children.Insert(1, player1);
+                    player1.StateChanged += OnStateChanged;
+                    player1.LengthChanged += OnLengthChanged;
+                    player1.VideoFormatChanging += (s, e) =>
+                    {
+                        if (e.Width > this.ActualWidth && this.ActualWidth > 0)
+                        {
+                            var w = this.ActualWidth;
+                            var h = w * e.Height / e.Width;
+                            e.Width = (uint)w;
+                            e.Height = (uint)h;
+                        }
+                    };
                     break;
                 default:
                     var player3 = new MediaElement
@@ -188,23 +199,32 @@ namespace Player
                     };
                     player3.MediaEnded += OnMediaEnded;
                     player3.MediaOpened += OnMediaOpened;
-                    root.Children.Add(player3);
+                    root.Children.Insert(1, player3);
                     break;
             }
 
             if (AppSettings["AutoPlay"].ToLower() == "true")
             {
-                this.Play(1);
+                Task.Delay(200).ContinueWith((t) =>
+                {
+                    this.Dispatcher.Invoke(() =>
+                    {
+                        this.Play(1);
+                    });
+                });
+
             }
         }
 
-        private void OnMediaOpening(object sender, Unosquare.FFME.Events.MediaOpeningRoutedEventArgs e)
+        private void OnMediaOpening(object sender, Unosquare.FFME.Common.MediaOpeningEventArgs e)
         {
-            var device = e.Options.VideoStream.HardwareDevices.FirstOrDefault(d => d.DeviceType == AVHWDeviceType.AV_HWDEVICE_TYPE_DXVA2);
+            var device = e.Options.VideoStream.HardwareDevices
+                                    .FirstOrDefault(d => d.DeviceType == FFmpeg.AutoGen.AVHWDeviceType.AV_HWDEVICE_TYPE_DXVA2);
             if (device != null)
                 e.Options.VideoHardwareDevice = device;
             else
-                e.Options.VideoHardwareDevice = e.Options.VideoStream.HardwareDevices.FirstOrDefault(d => d.DeviceType == AVHWDeviceType.AV_HWDEVICE_TYPE_CUDA);
+                e.Options.VideoHardwareDevice = e.Options.VideoStream.HardwareDevices
+                                                                             .FirstOrDefault(d => d.DeviceType == FFmpeg.AutoGen.AVHWDeviceType.AV_HWDEVICE_TYPE_D3D11VA);
 
             if (e.Options.VideoStream.PixelWidth > this.ActualWidth)
             {
@@ -212,7 +232,7 @@ namespace Player
             }
         }
 
-        private void OnMediaOpened(object sender, RoutedEventArgs e)
+        private void OnMediaOpened(object sender, EventArgs e)
         {
             var send = "duration:";
             if (sender is MediaElement player1)
@@ -221,7 +241,7 @@ namespace Player
             }
             else if (sender is Unosquare.FFME.MediaElement player2)
             {
-                send += player2.NaturalDuration.TimeSpan.TotalSeconds;
+                send += player2.NaturalDuration?.TotalSeconds;
                 //Debug.WriteLine("video size:{0},{1}", player2.NaturalVideoWidth, player2.NaturalVideoHeight);
             }
             udpClient?.Send(send, IPAddress.Broadcast.ToString(), 10241);
@@ -230,11 +250,11 @@ namespace Player
 
         private void OnLengthChanged(object sender, EventArgs e)
         {
-            var player = sender as VlcPlayer;
+            var player = sender as Meta.Vlc.Wpf.VlcPlayer;
             udpClient?.Send($"duration:{player.Length.TotalSeconds}", IPAddress.Broadcast.ToString(), 10241);
         }
 
-        private async void OnMediaEnded(object sender, RoutedEventArgs e)
+        private async void OnMediaEnded(object sender, EventArgs e)
         {
             CommandManager.Stop(videos[index]);
             if (AppSettings["Loop"] == "true")
@@ -248,11 +268,14 @@ namespace Player
             }
         }
 
-        private async void OnStateChanged(object sender, Meta.Vlc.ObjectEventArgs<Meta.Vlc.Interop.Media.MediaState> e)
+        private async void OnStateChanged(object sender, Meta.Vlc.Event.MediaStateChangedEventArgs e)
         {
-            switch (e.Value)
+            switch (e.State)
             {
-                case Meta.Vlc.Interop.Media.MediaState.Ended:
+                case Meta.Vlc.MediaState.Opening:
+
+                    break;
+                case Meta.Vlc.MediaState.Ended:
                     CommandManager.Stop(videos[index]);
                     if (AppSettings["Loop"] == "true")
                     {
@@ -265,7 +288,6 @@ namespace Player
                     }
                     break;
             }
-
         }
 
         private async void Play(object name = null)
@@ -318,16 +340,18 @@ namespace Player
             }
             else if (root.Children[1] is Unosquare.FFME.MediaElement player2)
             {
+
                 if (!string.IsNullOrEmpty(p))
                     await player2.Open(new Uri(p, UriKind.Absolute));
-                else if (player2.Source == null)
-                    await player2.Open(new Uri(videos[0], UriKind.Absolute));
-                else
-                    await player2.Play();
+                //else if (player2.Source == null)
+                //    await player2.Open(new Uri(videos[0], UriKind.Absolute));
+
+                await player2.Play();
                 time = player2.Position;
             }
-            else if (root.Children[1] is VlcPlayer player1)
+            else if (root.Children[1] is Meta.Vlc.Wpf.VlcPlayer player1)
             {
+
                 if (!string.IsNullOrEmpty(p))
                 {
                     player1.Stop();
@@ -340,6 +364,11 @@ namespace Player
             if (string.IsNullOrEmpty(p))
             {
                 p = videos[index];
+            }
+
+            if (tbTitle.IsVisible)
+            {
+                tbTitle.Text = p;
             }
 
             CommandManager.Start(p, time);
@@ -368,7 +397,7 @@ namespace Player
             {
                 player2.Pause();
             }
-            else if (root.Children[1] is VlcPlayer player1)
+            else if (root.Children[1] is Meta.Vlc.Wpf.VlcPlayer player1)
             {
                 player1.Pause();
             }
@@ -405,7 +434,7 @@ namespace Player
             {
                 player2.Stop();
             }
-            else if (root.Children[1] is VlcPlayer player1)
+            else if (root.Children[1] is Meta.Vlc.Wpf.VlcPlayer player1)
             {
                 player1.Stop();
             }
@@ -449,13 +478,13 @@ namespace Player
                     {
                         if (time < TimeSpan.Zero)
                             time = TimeSpan.Zero;
-                        else if (time > player2.NaturalDuration.TimeSpan)
-                            time = player2.NaturalDuration.TimeSpan;
+                        else if (time > player2.NaturalDuration.Value)
+                            time = player2.NaturalDuration.Value;
                         player2.Position = time.Value;
                     }
                     return player2.Position.TotalSeconds;
                 }
-                else if (root.Children[1] is VlcPlayer player1)
+                else if (root.Children[1] is Meta.Vlc.Wpf.VlcPlayer player1)
                 {
                     if (time.HasValue)
                     {
@@ -482,9 +511,9 @@ namespace Player
                 }
                 else if (root.Children[1] is Unosquare.FFME.MediaElement player2)
                 {
-                    return player2.NaturalDuration.TimeSpan.TotalSeconds;
+                    return player2.NaturalDuration.Value.TotalSeconds;
                 }
-                else if (root.Children[1] is VlcPlayer player1)
+                else if (root.Children[1] is Meta.Vlc.Wpf.VlcPlayer player1)
                 {
                     return player1.Length.TotalSeconds;
                 }
@@ -672,8 +701,7 @@ namespace Player
 
         protected override void OnClosing(CancelEventArgs e)
         {
-
-            if (root.Children[1] is VlcPlayer player1)
+            if (root.Children[1] is Meta.Vlc.Wpf.VlcPlayer player1)
             {
                 player1.Stop();
                 player1.Dispose();
@@ -681,7 +709,6 @@ namespace Player
             else if (root.Children[1] is Unosquare.FFME.MediaElement player2)
             {
                 player2.Stop();
-                player2.Dispose();
             }
 
             base.OnClosing(e);

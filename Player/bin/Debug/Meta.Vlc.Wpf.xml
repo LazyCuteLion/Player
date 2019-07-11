@@ -271,39 +271,39 @@
                 <code>
             public void Foo(string param) {
               if (param == null)
-                throw new ArgumentNullException("par"); // Warning: Cannot resolve symbol
+            throw new ArgumentNullException("par"); // Warning: Cannot resolve symbol
             }
             </code>
             </example>
         </member>
         <member name="T:Meta.Vlc.Wpf.Annotations.NotifyPropertyChangedInvocatorAttribute">
-             <summary>
-                 Indicates that the method is contained in a type that implements
-                 <c>System.ComponentModel.INotifyPropertyChanged</c> interface and this method
-                 is used to notify that some property value changed.
-             </summary>
-             <remarks>
-                 The method should be non-static and conform to one of the supported signatures:
-                 <list>
-                     <item>
-                         <c>NotifyChanged(string)</c>
-                     </item>
-                     <item>
-                         <c>NotifyChanged(params string[])</c>
-                     </item>
-                     <item>
-                         <c>NotifyChanged{T}(Expression{Func{T}})</c>
-                     </item>
-                     <item>
-                         <c>NotifyChanged{T,U}(Expression{Func{T,U}})</c>
-                     </item>
-                     <item>
-                         <c>SetProperty{T}(ref T, T, string)</c>
-                     </item>
-                 </list>
-             </remarks>
-             <example>
-                 <code>
+            <summary>
+                Indicates that the method is contained in a type that implements
+                <c>System.ComponentModel.INotifyPropertyChanged</c> interface and this method
+                is used to notify that some property value changed.
+            </summary>
+            <remarks>
+                The method should be non-static and conform to one of the supported signatures:
+                <list>
+                    <item>
+                        <c>NotifyChanged(string)</c>
+                    </item>
+                    <item>
+                        <c>NotifyChanged(params string[])</c>
+                    </item>
+                    <item>
+                        <c>NotifyChanged{T}(Expression{Func{T}})</c>
+                    </item>
+                    <item>
+                        <c>NotifyChanged{T,U}(Expression{Func{T,U}})</c>
+                    </item>
+                    <item>
+                        <c>SetProperty{T}(ref T, T, string)</c>
+                    </item>
+                </list>
+            </remarks>
+            <example>
+                <code>
               public class Foo : INotifyPropertyChanged {
                 public event PropertyChangedEventHandler PropertyChanged;
                 [NotifyPropertyChangedInvocator]
@@ -311,27 +311,27 @@
             
                 private string _name;
                 public string Name {
-                  get { return _name; }
-                  set { _name = value; NotifyChanged("LastName"); /* Warning */ }
+              get { return _name; }
+              set { _name = value; NotifyChanged("LastName"); /* Warning */ }
                 }
               }
               </code>
-                 Examples of generated notifications:
-                 <list>
-                     <item>
-                         <c>NotifyChanged("Property")</c>
-                     </item>
-                     <item>
-                         <c>NotifyChanged(() =&gt; Property)</c>
-                     </item>
-                     <item>
-                         <c>NotifyChanged((VM x) =&gt; x.Property)</c>
-                     </item>
-                     <item>
-                         <c>SetProperty(ref myField, value, "Property")</c>
-                     </item>
-                 </list>
-             </example>
+                Examples of generated notifications:
+                <list>
+                    <item>
+                        <c>NotifyChanged("Property")</c>
+                    </item>
+                    <item>
+                        <c>NotifyChanged(() =&gt; Property)</c>
+                    </item>
+                    <item>
+                        <c>NotifyChanged((VM x) =&gt; x.Property)</c>
+                    </item>
+                    <item>
+                        <c>SetProperty(ref myField, value, "Property")</c>
+                    </item>
+                </list>
+            </example>
         </member>
         <member name="T:Meta.Vlc.Wpf.Annotations.ContractAnnotationAttribute">
             <summary>
@@ -416,11 +416,11 @@
             class NoEquality { }
             class UsesNoEquality {
               public void Test() {
-                var ca1 = new NoEquality();
-                var ca2 = new NoEquality();
-                if (ca1 != null) { // OK
-                  bool condition = ca1 == ca2; // Warning
-                }
+            var ca1 = new NoEquality();
+            var ca2 = new NoEquality();
+            if (ca1 != null) { // OK
+              bool condition = ca1 == ca2; // Warning
+            }
               }
             }
             </code>
@@ -532,7 +532,7 @@
             [SourceTemplate]
             public static void forEach&lt;T&gt;(this IEnumerable&lt;T&gt; xs) {
               foreach (var x in xs) {
-                 //$ $END$
+             //$ $END$
               }
             }
             </code>
@@ -554,7 +554,7 @@
             [SourceTemplate, Macro(Target = "item", Expression = "suggestVariableName()")]
             public static void forEach&lt;T&gt;(this IEnumerable&lt;T&gt; collection) {
               foreach (var item in collection) {
-                //$ $END$
+            //$ $END$
               }
             }
             </code>
@@ -970,7 +970,7 @@
                 Show next frame.
             </summary>
         </member>
-        <member name="M:Meta.Vlc.Wpf.VlcPlayer.Navigate(Meta.Vlc.Interop.MediaPlayer.NavigateMode)">
+        <member name="M:Meta.Vlc.Wpf.VlcPlayer.Navigate(Meta.Vlc.NavigateMode)">
             <summary>
                 Inactive with DVD menu.
             </summary>
@@ -1113,11 +1113,6 @@
                 Get or set current time progress of media.
             </summary>
         </member>
-        <member name="P:Meta.Vlc.Wpf.VlcPlayer.FPS">
-            <summary>
-                Get FPS of media.
-            </summary>
-        </member>
         <member name="P:Meta.Vlc.Wpf.VlcPlayer.IsMute">
             <summary>
                 Get or set state of mute.
@@ -1178,6 +1173,11 @@
                 Get state of media.
             </summary>
         </member>
+        <member name="P:Meta.Vlc.Wpf.VlcPlayer.CanPause">
+            <summary>
+                Can this media player be paused?
+            </summary>
+        </member>
         <member name="P:Meta.Vlc.Wpf.VlcPlayer.Length">
             <summary>
                 Get length of media.
@@ -1225,17 +1225,17 @@
         </member>
         <member name="P:Meta.Vlc.Wpf.VideoFormatChangingEventArgs.Width">
             <summary>
-            Width of video.
+                Width of video.
             </summary>
         </member>
         <member name="P:Meta.Vlc.Wpf.VideoFormatChangingEventArgs.Height">
             <summary>
-            Height of video.
+                Height of video.
             </summary>
         </member>
         <member name="P:Meta.Vlc.Wpf.VideoFormatChangingEventArgs.ChromaType">
             <summary>
-            Video chroma type.
+                Video chroma type.
             </summary>
         </member>
     </members>

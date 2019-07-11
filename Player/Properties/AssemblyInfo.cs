@@ -54,4 +54,4 @@ using System.Windows;
 [assembly: AssemblyVersion("1.0.0.0")]
 [assembly: AssemblyFileVersion("1.0.0.0")]
 
-[assembly: Meta.Vlc.VlcSettings(@"vlc", "-I", "dummy", "--ignore-config", "--no-video-title")]
+//[assembly: Meta.Vlc.VlcSettings(@"LibVlc", "-I", "--dummy-quiet", "--ignore-config", "--no-video-title","--rtsp-tcp")]

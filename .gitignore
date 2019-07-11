@@ -2,7 +2,9 @@
 \.vs
 \obj
 /player/bin/debug/ffmpeg
+/player/bin/debug/ffmpeg.4.1.1
 /player/bin/debug/vlc
+/player/bin/debug/LibVlc
 /player/bin/debug/videos
 /player/bin/release
 

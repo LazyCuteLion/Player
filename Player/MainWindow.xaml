@@ -29,5 +29,6 @@
                 </trans:RandomTransitionSelector>
             </transc:Slideshow.TransitionSelector>
         </transc:Slideshow>
+        <TextBlock Name="tbTitle" Text="标题" Foreground="#7FFFFFFF" HorizontalAlignment="Left" VerticalAlignment="Top" FontSize="50"/>
     </Grid>
 </Window>
